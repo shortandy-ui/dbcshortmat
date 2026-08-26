@@ -1,0 +1,10 @@
+{
+  "name": "datchworth-short-mat-bowls-api",
+  "version": "1.0.0",
+  "private": true,
+  "main": "src/index.js",
+  "dependencies": {
+    "@azure/functions": "^4.5.1",
+    "@azure/storage-blob": "^12.24.0"
+  }
+}
