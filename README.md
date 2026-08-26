@@ -2,7 +2,7 @@
 
 The website itself (in `src/`) plus a small backend (`api/`) that gives it
 somewhere to store data online, so admin, team leaders, and visitors all see
-the same up-to-date league table from their own computer or phone.
+the same up-to-date league table from their own computer, or phone.
 
 You've already been through this process once for the Hatfield Indoor Bowls
 site, so the steps below are the same shape — just repeated for this second,
