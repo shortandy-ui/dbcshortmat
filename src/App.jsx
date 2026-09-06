@@ -175,11 +175,8 @@ function computeStandings(teams, matches) {
 /* ------------------------------------------------------------------ */
 
 async function loadRemote() {
-  try {
-    const res = await window.storage.get(STORAGE_KEY, true);
-    if (res && res.value) return JSON.parse(res.value);
-  } catch (e) { /* not found or unavailable */ }
-  return null;
+  const res = await window.storage.get(STORAGE_KEY, true);
+  return JSON.parse(res.value);
 }
 
 async function saveRemote(data) {
@@ -426,6 +423,8 @@ function PrintablePlayerCards({ data }) {
 export default function App() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [view, setView] = useState("public");
   const [pwInput, setPwInput] = useState("");
   const [pwError, setPwError] = useState("");
@@ -437,25 +436,48 @@ export default function App() {
   const flash = (msg) => setToast(msg);
 
   useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(false);
     (async () => {
-      let remote = await loadRemote();
-      if (!remote) {
-        remote = emptyData();
-        await saveRemote(remote);
+      try {
+        const remote = await loadRemote();
+        if (cancelled) return;
+        dataRef.current = remote;
+        setData(remote);
+        setLoading(false);
+      } catch (e) {
+        if (cancelled) return;
+        if (e && e.message === "not found") {
+          // genuinely no data on the server yet — safe to start a blank season
+          const fresh = emptyData();
+          await saveRemote(fresh);
+          if (cancelled) return;
+          dataRef.current = fresh;
+          setData(fresh);
+          setLoading(false);
+        } else {
+          // a real failure (network hiccup, server error, etc.) — never overwrite
+          // existing data just because we couldn't read it this one time
+          setLoadError(true);
+          setLoading(false);
+        }
       }
-      dataRef.current = remote;
-      setData(remote);
-      setLoading(false);
     })();
-  }, []);
+    return () => { cancelled = true; };
+  }, [loadAttempt]);
 
   useEffect(() => {
     const interval = setInterval(async () => {
       if (editingRef.current) return;
-      const remote = await loadRemote();
-      if (remote && JSON.stringify(remote) !== JSON.stringify(dataRef.current)) {
-        dataRef.current = remote;
-        setData(remote);
+      try {
+        const remote = await loadRemote();
+        if (remote && JSON.stringify(remote) !== JSON.stringify(dataRef.current)) {
+          dataRef.current = remote;
+          setData(remote);
+        }
+      } catch (e) {
+        // transient poll failure — just try again next cycle, never overwrite anything
       }
     }, 7000);
     return () => clearInterval(interval);
@@ -464,7 +486,7 @@ export default function App() {
   const persist = useCallback(async (next) => {
     dataRef.current = next;
     setData(next);
-    await saveRemote(next);
+    return await saveRemote(next);
   }, []);
 
   useEffect(() => {
@@ -474,6 +496,26 @@ export default function App() {
     window.addEventListener("afterprint", handleAfterPrint);
     return () => { clearTimeout(t); window.removeEventListener("afterprint", handleAfterPrint); };
   }, [printMode]);
+
+  if (loadError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-emerald-900 text-amber-50 font-serif px-4">
+        <div className="max-w-sm text-center">
+          <AlertTriangle className="mx-auto mb-3 text-amber-400" size={28} />
+          <p className="mb-1 font-medium">Couldn't load the league data.</p>
+          <p className="text-sm text-emerald-100 mb-4">
+            This is usually just a brief connection hiccup — nothing has been changed or lost. Try again in a moment.
+          </p>
+          <button
+            onClick={() => setLoadAttempt((n) => n + 1)}
+            className="bg-amber-600 text-emerald-950 rounded px-4 py-2 text-sm font-medium hover:bg-amber-500"
+          >
+            Try again
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (loading || !data) {
     return (
@@ -748,9 +790,9 @@ function ResultsEntry({ data, persist, flash, canUnlock, editingRef }) {
     const next = structuredClone(data);
     const m = next.matches.find((x) => x.id === match.id);
     m.homeScore = Number(homeScore); m.awayScore = Number(awayScore); m.played = true;
-    await persist(next);
+    const ok = await persist(next);
     editingRef.current = false;
-    flash("Score saved");
+    flash(ok ? "Score saved" : "Couldn't reach the server — try saving again in a moment");
   };
 
   const setDate = async (match, dateStr) => {
