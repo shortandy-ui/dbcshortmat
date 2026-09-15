@@ -49,6 +49,7 @@ function emptyData() {
   return {
     teamCount: DEFAULT_TEAM_COUNT,
     weeksSetting: DEFAULT_WEEKS,
+    winPoints: 2,
     teams: defaultTeams(DEFAULT_TEAM_COUNT),
     matches: [],
     locked: false,
@@ -152,7 +153,8 @@ function generateFixtures(teamCount, weeks) {
   return matches;
 }
 
-function computeStandings(teams, matches) {
+function computeStandings(teams, matches, winPoints) {
+  const win = winPoints ?? 2;
   const rows = teams.map((name, idx) => ({ idx, name, p: 0, w: 0, d: 0, l: 0, f: 0, a: 0, pts: 0 }));
   matches.forEach((m) => {
     if (!m.played) return;
@@ -161,8 +163,8 @@ function computeStandings(teams, matches) {
     h.p++; aw.p++;
     h.f += m.homeScore; h.a += m.awayScore;
     aw.f += m.awayScore; aw.a += m.homeScore;
-    if (m.homeScore > m.awayScore) { h.w++; aw.l++; h.pts += 2; }
-    else if (m.homeScore < m.awayScore) { aw.w++; h.l++; aw.pts += 2; }
+    if (m.homeScore > m.awayScore) { h.w++; aw.l++; h.pts += win; }
+    else if (m.homeScore < m.awayScore) { aw.w++; h.l++; aw.pts += win; }
     else { h.d++; aw.d++; h.pts += 1; aw.pts += 1; }
   });
   rows.forEach((r) => (r.diff = r.f - r.a));
@@ -287,13 +289,11 @@ function PrintableFixtures({ data }) {
   );
 }
 
-/* One page per team — just their own fixtures, with a blank score line so it
-   can be handed out before the season starts and filled in as games are played. */
 /* Current league table on a single A4 sheet. */
 function PrintableStandings({ data }) {
   const startYear = data.calendar?.startYear ?? defaultSeasonYear();
   const seasonLabel = `${startYear}/${String(startYear + 1).slice(-2)}`;
-  const rows = computeStandings(data.teams, data.matches);
+  const rows = computeStandings(data.teams, data.matches, data.winPoints);
 
   return (
     <div className="print-sheet fixtures-standings-page">
@@ -632,7 +632,7 @@ function Masthead({ view, setView, onLogout, data }) {
 /* ------------------------------------------------------------------ */
 
 function PublicView({ data, onPrint }) {
-  const standings = computeStandings(data.teams, data.matches);
+  const standings = computeStandings(data.teams, data.matches, data.winPoints);
   return (
     <main className="max-w-4xl mx-auto px-4 pt-8 pb-16">
       {data.matches.length === 0 ? (
@@ -919,11 +919,16 @@ function TeamSetup({ data, persist, flash }) {
 
   const teamCount = data.teamCount ?? DEFAULT_TEAM_COUNT;
   const weeksSetting = data.weeksSetting ?? DEFAULT_WEEKS;
+  const winPoints = data.winPoints ?? 2;
   const rinks = rinksForTeamCount(teamCount);
   const matchesPerWeek = teamCount / 2;
   const roundsPerLap = teamCount - 1; // circle-method cycle length (one full "lap" = everyone plays everyone once)
   const evenCycle = roundsPerLap * 2; // a full home-and-away cycle (fixtures alternate orientation every lap)
   const balanced = weeksSetting % evenCycle === 0;
+
+  const setWinPoints = async (n) => {
+    await persist({ ...data, winPoints: n });
+  };
 
   const chooseTeamCount = async (n) => {
     if (data.matches.length > 0) {
@@ -1025,6 +1030,19 @@ function TeamSetup({ data, persist, flash }) {
             className="w-20 border border-stone-300 rounded px-2 py-1 text-sm"
           />
         </label>
+        <div className="flex items-center gap-2 mt-3">
+          <span className="text-sm text-stone-600">Points for a win</span>
+          {[2, 3].map((n) => (
+            <button
+              key={n}
+              onClick={() => setWinPoints(n)}
+              className={`px-3 py-1.5 rounded border text-sm font-medium ${winPoints === n ? "bg-emerald-800 text-white border-emerald-800" : "bg-white border-stone-300 hover:border-emerald-600"}`}
+            >
+              {n} points
+            </button>
+          ))}
+          <span className="text-xs text-stone-400">(a draw is always 1 point)</span>
+        </div>
         <p className="text-xs text-stone-400 mt-1">
           With {teamCount} teams, {matchesPerWeek} matches run each week, and the fixture list repeats every {evenCycle} weeks
           (each team meeting every other team once at home and once away).
@@ -1210,6 +1228,7 @@ function ResetPanel({ data, persist, flash }) {
       const next = {
         teamCount: DEFAULT_TEAM_COUNT,
         weeksSetting: DEFAULT_WEEKS,
+        winPoints: 2,
         teams: defaultTeams(DEFAULT_TEAM_COUNT),
         matches: [],
         locked: false,
