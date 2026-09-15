@@ -1071,7 +1071,7 @@ function TeamSetup({ data, persist, flash }) {
         <section>
           <h3 className="font-serif text-lg text-emerald-900 mb-2">Fixtures</h3>
           <p className="text-sm text-stone-500 mb-3">
-            Generates a {weeksSetting}-week season, {matchesPerWeek} matches on {rinks.length === 2 ? "rinks 1/2" : "rinks 1E/1L/2E/2L"} each week, drawn at random —
+            Generates a season of fixtures, {matchesPerWeek} matches on {rinks.length === 2 ? "rinks 1/2" : "rinks 1E/1L/2E/2L"} each week, drawn at random —
             every team plays every other team as evenly as the season length allows.
           </p>
           <button onClick={generate} className="bg-amber-600 text-emerald-950 rounded px-4 py-2 text-sm font-medium hover:bg-amber-500 flex items-center gap-1.5 mb-5">
