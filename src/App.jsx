@@ -923,8 +923,7 @@ function TeamSetup({ data, persist, flash }) {
   const rinks = rinksForTeamCount(teamCount);
   const matchesPerWeek = teamCount / 2;
   const roundsPerLap = teamCount - 1; // circle-method cycle length (one full "lap" = everyone plays everyone once)
-  const evenCycle = roundsPerLap * 2; // a full home-and-away cycle (fixtures alternate orientation every lap)
-  const balanced = weeksSetting % evenCycle === 0;
+  const balanced = weeksSetting % roundsPerLap === 0;
 
   const setWinPoints = async (n) => {
     await persist({ ...data, winPoints: n });
@@ -959,7 +958,7 @@ function TeamSetup({ data, persist, flash }) {
       if (!window.confirm("Some results have already been entered. Regenerating fixtures will remove all existing matches and scores. Continue?")) return;
     }
     if (!balanced) {
-      if (!window.confirm(`${weeksSetting} weeks isn't a multiple of ${evenCycle}, so some teams will get an extra home or away game compared to others. Generate anyway?`)) return;
+      if (!window.confirm(`${weeksSetting} weeks isn't a multiple of ${roundsPerLap}, so some pairs of teams will meet one more time than others. Generate anyway?`)) return;
     }
     const next = structuredClone(data);
     next.matches = generateFixtures(teamCount, weeksSetting);
@@ -1044,14 +1043,14 @@ function TeamSetup({ data, persist, flash }) {
           <span className="text-xs text-stone-400">(a draw is always 1 point)</span>
         </div>
         <p className="text-xs text-stone-400 mt-1">
-          With {teamCount} teams, {matchesPerWeek} matches run each week, and the fixture list repeats every {evenCycle} weeks
-          (each team meeting every other team once at home and once away).
+          With {teamCount} teams, {matchesPerWeek} matches run each week, and the fixture list repeats every {roundsPerLap} weeks
+          (each team meeting every other team once).
         </p>
         {!balanced && (
           <p className="text-xs text-amber-700 bg-amber-50 border border-amber-300 rounded px-3 py-2 mt-2 flex items-start gap-1.5">
             <AlertTriangle size={14} className="shrink-0 mt-0.5" />
-            {weeksSetting} weeks won't divide evenly &mdash; some teams will get an extra home or away game compared to
-            others. For an equal split, use a multiple of {evenCycle} (e.g. {evenCycle}, {evenCycle * 2}, {evenCycle * 3}).
+            {weeksSetting} weeks won't divide evenly &mdash; some pairs of teams will meet one more time than others.
+            For an equal split, use a multiple of {roundsPerLap} (e.g. {roundsPerLap}, {roundsPerLap * 2}, {roundsPerLap * 3}).
           </p>
         )}
       </section>
