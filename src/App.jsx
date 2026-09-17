@@ -15,6 +15,7 @@ const DEFAULT_TEAM_COUNT = 8;
 const DEFAULT_WEEKS = 14; // with 8 teams (4 rinks) or 4 teams (2 rinks), every team plays every week, so weeks = games per team
 const WEEKDAY = 4; // Thursday (0=Sun..6=Sat)
 const ADMIN_PASSWORD = "skip";
+const LEADER_PASSWORD = "jump";
 const STORAGE_KEY = "datchworth-short-mat-data";
 
 // 8 teams need 4 concurrent games (two sessions on each of the club's 2 rinks);
@@ -546,6 +547,7 @@ export default function App() {
 
         {view === "admin-login" && (
           <LoginScreen
+            role="admin"
             pwInput={pwInput}
             setPwInput={setPwInput}
             pwError={pwError}
@@ -553,6 +555,24 @@ export default function App() {
             onSubmit={() => {
               if (pwInput === ADMIN_PASSWORD) {
                 setView("admin");
+                setPwInput(""); setPwError("");
+              } else {
+                setPwError("That password doesn't match. Try again.");
+              }
+            }}
+          />
+        )}
+
+        {view === "leader-login" && (
+          <LoginScreen
+            role="leader"
+            pwInput={pwInput}
+            setPwInput={setPwInput}
+            pwError={pwError}
+            onBack={() => { setView("public"); setPwInput(""); setPwError(""); }}
+            onSubmit={() => {
+              if (pwInput === LEADER_PASSWORD) {
+                setView("leader");
                 setPwInput(""); setPwError("");
               } else {
                 setPwError("That password doesn't match. Try again.");
@@ -609,7 +629,7 @@ function Masthead({ view, setView, onLogout, data }) {
         <div className="flex items-center gap-2 text-sm">
           {!loggedIn && (
             <>
-              <button onClick={() => setView("leader")} className="px-3 py-1.5 rounded border border-amber-400 text-amber-100 hover:bg-emerald-800 transition">
+              <button onClick={() => setView("leader-login")} className="px-3 py-1.5 rounded border border-amber-400 text-amber-100 hover:bg-emerald-800 transition">
                 Team leader
               </button>
               <button onClick={() => setView("admin-login")} className="px-3 py-1.5 rounded bg-amber-600 text-emerald-950 font-medium hover:bg-amber-500 transition flex items-center gap-1">
@@ -635,7 +655,7 @@ function Masthead({ view, setView, onLogout, data }) {
 function PublicView({ data, onPrint }) {
   const standings = computeStandings(data.teams, data.matches);
   const hasMembers = data.teamMembers && Object.keys(data.teamMembers).length > 0;
-  const [membersOpen, setMembersOpen] = useState(true);
+  const [membersOpen, setMembersOpen] = useState(false);
   return (
     <main className="max-w-4xl mx-auto px-4 pt-8 pb-16">
       {data.matches.length === 0 ? (
@@ -771,7 +791,7 @@ function FixturesList({ data, onScoreClick }) {
 /* Login                                                               */
 /* ------------------------------------------------------------------ */
 
-function LoginScreen({ pwInput, setPwInput, pwError, onSubmit, onBack }) {
+function LoginScreen({ role, pwInput, setPwInput, pwError, onSubmit, onBack }) {
   return (
     <main className="max-w-sm mx-auto px-4 pt-16">
       <button onClick={onBack} className="text-sm text-emerald-800 flex items-center gap-1 mb-6 hover:underline">
@@ -780,9 +800,11 @@ function LoginScreen({ pwInput, setPwInput, pwError, onSubmit, onBack }) {
       <div className="bg-white border border-stone-200 rounded-lg p-6 shadow-sm">
         <h2 className="font-serif text-xl text-emerald-900 mb-1 flex items-center gap-2">
           <ShieldCheck size={18} className="text-amber-600" />
-          Admin sign in
+          {role === "admin" ? "Admin sign in" : "Team leader sign in"}
         </h2>
-        <p className="text-sm text-stone-500 mb-4">Set up teams and fixtures.</p>
+        <p className="text-sm text-stone-500 mb-4">
+          {role === "admin" ? "Set up teams and fixtures." : "Enter match scores."}
+        </p>
         <div>
           <label className="text-xs uppercase tracking-wide text-stone-400">Password</label>
           <input
