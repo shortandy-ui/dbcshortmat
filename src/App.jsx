@@ -2,14 +2,14 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   Lock, Unlock, ShieldCheck, Calendar, Download, RotateCcw,
   Trophy, LogOut, Check, X, Save, PlusCircle, ArrowLeft,
-  RefreshCw, AlertTriangle, Printer
+  RefreshCw, AlertTriangle, Printer, Users
 } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
 /* Config                                                              */
 /* ------------------------------------------------------------------ */
 
-const TITLE = "Datchworth Short Mat Bowls League";
+const TITLE = "George and Mary Willcox Memorial League";
 const TEAM_COUNT_OPTIONS = [4, 8];
 const DEFAULT_TEAM_COUNT = 8;
 const DEFAULT_WEEKS = 14; // with 8 teams (4 rinks) or 4 teams (2 rinks), every team plays every week, so weeks = games per team
@@ -49,8 +49,8 @@ function emptyData() {
   return {
     teamCount: DEFAULT_TEAM_COUNT,
     weeksSetting: DEFAULT_WEEKS,
-    winPoints: 2,
     teams: defaultTeams(DEFAULT_TEAM_COUNT),
+    teamMembers: {},
     matches: [],
     locked: false,
     calendar: { startYear: defaultSeasonYear(), excluded: [] },
@@ -153,8 +153,9 @@ function generateFixtures(teamCount, weeks) {
   return matches;
 }
 
-function computeStandings(teams, matches, winPoints) {
-  const win = winPoints ?? 2;
+function computeStandings(teams, matches) {
+  const win = 4;
+  const draw = 2;
   const rows = teams.map((name, idx) => ({ idx, name, p: 0, w: 0, d: 0, l: 0, f: 0, a: 0, pts: 0 }));
   matches.forEach((m) => {
     if (!m.played) return;
@@ -165,7 +166,7 @@ function computeStandings(teams, matches, winPoints) {
     aw.f += m.awayScore; aw.a += m.homeScore;
     if (m.homeScore > m.awayScore) { h.w++; aw.l++; h.pts += win; }
     else if (m.homeScore < m.awayScore) { aw.w++; h.l++; aw.pts += win; }
-    else { h.d++; aw.d++; h.pts += 1; aw.pts += 1; }
+    else { h.d++; aw.d++; h.pts += draw; aw.pts += draw; }
   });
   rows.forEach((r) => (r.diff = r.f - r.a));
   rows.sort((a, b) => b.pts - a.pts || b.diff - a.diff || b.f - a.f || a.name.localeCompare(b.name));
@@ -293,7 +294,7 @@ function PrintableFixtures({ data }) {
 function PrintableStandings({ data }) {
   const startYear = data.calendar?.startYear ?? defaultSeasonYear();
   const seasonLabel = `${startYear}/${String(startYear + 1).slice(-2)}`;
-  const rows = computeStandings(data.teams, data.matches, data.winPoints);
+  const rows = computeStandings(data.teams, data.matches);
 
   return (
     <div className="print-sheet fixtures-standings-page">
@@ -632,7 +633,7 @@ function Masthead({ view, setView, onLogout, data }) {
 /* ------------------------------------------------------------------ */
 
 function PublicView({ data, onPrint }) {
-  const standings = computeStandings(data.teams, data.matches, data.winPoints);
+  const standings = computeStandings(data.teams, data.matches);
   return (
     <main className="max-w-4xl mx-auto px-4 pt-8 pb-16">
       {data.matches.length === 0 ? (
@@ -657,6 +658,26 @@ function PublicView({ data, onPrint }) {
             <FixturesList data={data} />
           </section>
         </div>
+      )}
+
+      {data.teamMembers && Object.keys(data.teamMembers).length > 0 && (
+        <section className="mt-10">
+          <h2 className="font-serif text-lg text-emerald-900 mb-3 flex items-center gap-2">
+            <Users size={16} className="text-amber-600" /> Team Members
+          </h2>
+          <div className="grid sm:grid-cols-2 gap-4">
+            {data.teams.map((teamName, idx) => {
+              const members = data.teamMembers[idx];
+              if (!members || members.length === 0) return null;
+              return (
+                <div key={idx} className="bg-white border border-stone-200 rounded-lg p-3">
+                  <div className="font-serif font-medium text-emerald-900 mb-1">{teamName}</div>
+                  <div className="text-sm text-stone-600">{members.join(", ")}</div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
       )}
     </main>
   );
@@ -916,18 +937,17 @@ function AdminPanel({ data, persist, flash, editingRef, onPrint, onPrintCards, o
 function TeamSetup({ data, persist, flash }) {
   const [nameDraft, setNameDraft] = useState(data.teams);
   useEffect(() => { setNameDraft(data.teams); }, [data.teams]);
+  const [pasteText, setPasteText] = useState("");
+  const [pasteErrors, setPasteErrors] = useState([]);
+  const [membersPasteText, setMembersPasteText] = useState("");
+  const [membersPasteErrors, setMembersPasteErrors] = useState([]);
 
   const teamCount = data.teamCount ?? DEFAULT_TEAM_COUNT;
   const weeksSetting = data.weeksSetting ?? DEFAULT_WEEKS;
-  const winPoints = data.winPoints ?? 2;
   const rinks = rinksForTeamCount(teamCount);
   const matchesPerWeek = teamCount / 2;
   const roundsPerLap = teamCount - 1; // circle-method cycle length (one full "lap" = everyone plays everyone once)
   const balanced = weeksSetting % roundsPerLap === 0;
-
-  const setWinPoints = async (n) => {
-    await persist({ ...data, winPoints: n });
-  };
 
   const chooseTeamCount = async (n) => {
     if (data.matches.length > 0) {
@@ -936,6 +956,7 @@ function TeamSetup({ data, persist, flash }) {
     const next = structuredClone(data);
     next.teamCount = n;
     next.teams = defaultTeams(n);
+    next.teamMembers = {};
     next.matches = [];
     next.locked = false;
     await persist(next);
@@ -953,6 +974,44 @@ function TeamSetup({ data, persist, flash }) {
     flash("Team names saved");
   };
 
+  const teamIndexByNameForMembers = new Map(data.teams.map((t, i) => [t.trim().toLowerCase(), i]));
+
+  const loadPastedMembers = async () => {
+    const lines = membersPasteText.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+    if (lines.length === 0) {
+      setMembersPasteErrors(["Paste some rows first — one team per line: Team, Names."]);
+      return;
+    }
+
+    const errors = [];
+    const membersByIndex = {};
+    lines.forEach((line, i) => {
+      const fields = line.includes("\t") ? line.split("\t") : line.split(";");
+      if (fields.length !== 2) {
+        errors.push(`Line ${i + 1}: expected 2 columns (Team, Names) — separate them with a Tab (or a semicolon if typing by hand), found ${fields.length}.`);
+        return;
+      }
+      const [teamName, namesRaw] = fields.map((f) => f.trim());
+      const teamIdx = teamIndexByNameForMembers.get(teamName.toLowerCase());
+      if (teamIdx === undefined) {
+        errors.push(`Line ${i + 1}: "${teamName}" doesn't match any team name.`);
+        return;
+      }
+      const names = namesRaw.split(",").map((n) => n.trim()).filter((n) => n.length > 0);
+      membersByIndex[teamIdx] = names;
+    });
+
+    if (errors.length > 0) {
+      setMembersPasteErrors(errors);
+      return;
+    }
+
+    await persist({ ...data, teamMembers: membersByIndex });
+    setMembersPasteErrors([]);
+    setMembersPasteText("");
+    flash(`Team members loaded for ${Object.keys(membersByIndex).length} teams`);
+  };
+
   const generate = async () => {
     if (data.matches.some((m) => m.played)) {
       if (!window.confirm("Some results have already been entered. Regenerating fixtures will remove all existing matches and scores. Continue?")) return;
@@ -965,6 +1024,75 @@ function TeamSetup({ data, persist, flash }) {
     next.locked = false;
     await persist(next);
     flash(`Fixtures generated: ${weeksSetting} weeks, ${next.matches.length} matches`);
+  };
+
+  const validRinkSet = new Map(rinks.map((r) => [r.toLowerCase(), r]));
+  const teamIndexByName = new Map(data.teams.map((t, i) => [t.trim().toLowerCase(), i]));
+
+  const loadPastedFixtures = async () => {
+    if (data.matches.some((m) => m.played)) {
+      if (!window.confirm("Some results have already been entered. Loading these fixtures will remove all existing matches and scores. Continue?")) return;
+    }
+    const lines = pasteText.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+    if (lines.length === 0) {
+      setPasteErrors(["Paste some rows first — one match per line: Home, Away, Rink."]);
+      return;
+    }
+
+    const errors = [];
+    const pairs = [];
+    lines.forEach((line, i) => {
+      const fields = (line.includes("\t") ? line.split("\t") : line.split(",")).map((f) => f.trim());
+      if (fields.length !== 3) {
+        errors.push(`Line ${i + 1}: expected 3 columns (Home, Away, Rink), found ${fields.length}.`);
+        return;
+      }
+      const [homeName, awayName, rinkRaw] = fields;
+      const homeIdx = teamIndexByName.get(homeName.toLowerCase());
+      const awayIdx = teamIndexByName.get(awayName.toLowerCase());
+      if (homeIdx === undefined) errors.push(`Line ${i + 1}: "${homeName}" doesn't match any team name.`);
+      if (awayIdx === undefined) errors.push(`Line ${i + 1}: "${awayName}" doesn't match any team name.`);
+      const rink = validRinkSet.get(rinkRaw.toLowerCase()) || rinkRaw;
+      if (!validRinkSet.has(rinkRaw.toLowerCase())) {
+        errors.push(`Line ${i + 1}: "${rinkRaw}" isn't one of this format's rinks (${rinks.join("/")}) — kept as typed.`);
+      }
+      if (homeIdx !== undefined && awayIdx !== undefined) {
+        pairs.push({ home: homeIdx, away: awayIdx, rink });
+      }
+    });
+
+    const blockingErrors = errors.filter((e) => !e.includes("kept as typed"));
+    if (blockingErrors.length > 0) {
+      setPasteErrors(errors);
+      return;
+    }
+
+    if (lines.length % matchesPerWeek !== 0) {
+      if (!window.confirm(`${lines.length} rows isn't a multiple of ${matchesPerWeek} matches/week for this format — the last week will be incomplete. Continue anyway?`)) {
+        setPasteErrors(errors);
+        return;
+      }
+    }
+
+    const matches = pairs.map((pair, i) => ({
+      id: uid(),
+      week: Math.floor(i / matchesPerWeek),
+      home: pair.home,
+      away: pair.away,
+      rink: pair.rink,
+      date: "",
+      homeScore: null,
+      awayScore: null,
+      played: false,
+    }));
+
+    const next = structuredClone(data);
+    next.matches = matches;
+    next.locked = false;
+    await persist(next);
+    setPasteErrors([]);
+    setPasteText("");
+    flash(`Fixtures loaded: ${matches.length} matches across ${Math.ceil(matches.length / matchesPerWeek)} weeks`);
   };
 
   const weekDates = {};
@@ -1029,19 +1157,6 @@ function TeamSetup({ data, persist, flash }) {
             className="w-20 border border-stone-300 rounded px-2 py-1 text-sm"
           />
         </label>
-        <div className="flex items-center gap-2 mt-3">
-          <span className="text-sm text-stone-600">Points for a win</span>
-          {[2, 3].map((n) => (
-            <button
-              key={n}
-              onClick={() => setWinPoints(n)}
-              className={`px-3 py-1.5 rounded border text-sm font-medium ${winPoints === n ? "bg-emerald-800 text-white border-emerald-800" : "bg-white border-stone-300 hover:border-emerald-600"}`}
-            >
-              {n} points
-            </button>
-          ))}
-          <span className="text-xs text-stone-400">(a draw is always 1 point)</span>
-        </div>
         <p className="text-xs text-stone-400 mt-1">
           With {teamCount} teams, {matchesPerWeek} matches run each week, and the fixture list repeats every {roundsPerLap} weeks
           (each team meeting every other team once).
@@ -1066,6 +1181,30 @@ function TeamSetup({ data, persist, flash }) {
           <button onClick={saveNames} className="bg-emerald-800 text-white rounded px-4 py-2 text-sm font-medium hover:bg-emerald-900 flex items-center gap-1.5">
             <Save size={14} /> Save team names
           </button>
+
+          <h4 className="font-serif text-sm text-stone-600 mt-6 mb-1 flex items-center gap-1.5">
+            <Users size={14} /> Team members
+          </h4>
+          <p className="text-xs text-stone-400 mb-2">
+            One team per line, two columns: <strong>Team, Names</strong> (Tab-separated works best for pasting from a
+            spreadsheet; if typing by hand, separate the two columns with a semicolon instead). List multiple names
+            for a team separated by commas.
+          </p>
+          <textarea
+            value={membersPasteText}
+            onChange={(e) => setMembersPasteText(e.target.value)}
+            rows={5}
+            placeholder={`Team 1; Alex Smith, Jo Brown, Sam Lee\nTeam 2; Pat Jones, Kim White`}
+            className="w-full border border-stone-300 rounded px-3 py-2 text-sm font-mono mb-2"
+          />
+          {membersPasteErrors.length > 0 && (
+            <div className="bg-red-50 border border-red-200 rounded p-2 mb-2 text-xs text-red-700 space-y-0.5 max-h-32 overflow-y-auto">
+              {membersPasteErrors.map((e, i) => <div key={i}>{e}</div>)}
+            </div>
+          )}
+          <button onClick={loadPastedMembers} className="bg-emerald-800 text-white rounded px-4 py-2 text-sm font-medium hover:bg-emerald-900 flex items-center gap-1.5">
+            <Save size={14} /> Load team members
+          </button>
         </section>
 
         <section>
@@ -1076,6 +1215,28 @@ function TeamSetup({ data, persist, flash }) {
           </p>
           <button onClick={generate} className="bg-amber-600 text-emerald-950 rounded px-4 py-2 text-sm font-medium hover:bg-amber-500 flex items-center gap-1.5 mb-5">
             <PlusCircle size={15} /> {data.matches.length ? "Regenerate fixtures" : "Generate fixtures"}
+          </button>
+
+          <h4 className="font-serif text-sm text-stone-600 mb-1">Or paste your own fixtures</h4>
+          <p className="text-xs text-stone-400 mb-2">
+            One match per line, three columns: <strong>Home, Away, Rink</strong> (tab or comma-separated — pasting
+            straight from a spreadsheet works). Rows are grouped into weeks {matchesPerWeek} at a time, in the order
+            you paste them.
+          </p>
+          <textarea
+            value={pasteText}
+            onChange={(e) => setPasteText(e.target.value)}
+            rows={6}
+            placeholder={`Team 1, Team 2, ${rinks[0]}\nTeam 3, Team 4, ${rinks[1] || rinks[0]}`}
+            className="w-full border border-stone-300 rounded px-3 py-2 text-sm font-mono mb-2"
+          />
+          {pasteErrors.length > 0 && (
+            <div className="bg-red-50 border border-red-200 rounded p-2 mb-2 text-xs text-red-700 space-y-0.5 max-h-32 overflow-y-auto">
+              {pasteErrors.map((e, i) => <div key={i}>{e}</div>)}
+            </div>
+          )}
+          <button onClick={loadPastedFixtures} className="bg-emerald-800 text-white rounded px-4 py-2 text-sm font-medium hover:bg-emerald-900 flex items-center gap-1.5 mb-5">
+            <Save size={14} /> Load pasted fixtures
           </button>
 
           {weekNums.length > 0 && (
@@ -1227,8 +1388,8 @@ function ResetPanel({ data, persist, flash }) {
       const next = {
         teamCount: DEFAULT_TEAM_COUNT,
         weeksSetting: DEFAULT_WEEKS,
-        winPoints: 2,
         teams: defaultTeams(DEFAULT_TEAM_COUNT),
+        teamMembers: {},
         matches: [],
         locked: false,
         calendar: { startYear: defaultSeasonYear(), excluded: [] },
