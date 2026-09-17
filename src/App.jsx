@@ -635,15 +635,9 @@ function Masthead({ view, setView, onLogout, data }) {
 function PublicView({ data, onPrint }) {
   const standings = computeStandings(data.teams, data.matches);
   const hasMembers = data.teamMembers && Object.keys(data.teamMembers).length > 0;
+  const [membersOpen, setMembersOpen] = useState(true);
   return (
     <main className="max-w-4xl mx-auto px-4 pt-8 pb-16">
-      {hasMembers && (
-        <div className="flex justify-end mb-4">
-          <a href="#team-members" className="text-sm text-emerald-800 hover:underline flex items-center gap-1.5">
-            <Users size={14} /> Team members
-          </a>
-        </div>
-      )}
       {data.matches.length === 0 ? (
         <EmptyState text="Fixtures haven't been published yet. Check back once the admin sets things up." />
       ) : (
@@ -653,6 +647,43 @@ function PublicView({ data, onPrint }) {
               <Trophy size={16} className="text-amber-600" /> League table
             </h2>
             <StandingsTable rows={standings} />
+
+            {hasMembers && membersOpen && (
+              <div className="mt-6">
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="font-serif text-lg text-emerald-900 flex items-center gap-2">
+                    <Users size={16} className="text-amber-600" /> Team Members
+                  </h2>
+                  <button
+                    onClick={() => setMembersOpen(false)}
+                    aria-label="Close team members"
+                    className="text-stone-400 hover:text-stone-700 p-1"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  {data.teams.map((teamName, idx) => {
+                    const members = data.teamMembers[idx];
+                    if (!members || members.length === 0) return null;
+                    return (
+                      <div key={idx} className="bg-white border border-stone-200 rounded-lg p-3">
+                        <div className="font-serif font-medium text-emerald-900 mb-1">{teamName}</div>
+                        <div className="text-sm text-stone-600">{members.join(", ")}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {hasMembers && !membersOpen && (
+              <button
+                onClick={() => setMembersOpen(true)}
+                className="mt-4 text-sm text-emerald-800 hover:underline flex items-center gap-1.5"
+              >
+                <Users size={14} /> Show team members
+              </button>
+            )}
           </section>
           <section>
             <div className="flex items-center justify-between mb-3">
@@ -666,26 +697,6 @@ function PublicView({ data, onPrint }) {
             <FixturesList data={data} />
           </section>
         </div>
-      )}
-
-      {data.teamMembers && Object.keys(data.teamMembers).length > 0 && (
-        <section id="team-members" className="mt-10 scroll-mt-6">
-          <h2 className="font-serif text-lg text-emerald-900 mb-3 flex items-center gap-2">
-            <Users size={16} className="text-amber-600" /> Team Members
-          </h2>
-          <div className="grid sm:grid-cols-2 gap-4">
-            {data.teams.map((teamName, idx) => {
-              const members = data.teamMembers[idx];
-              if (!members || members.length === 0) return null;
-              return (
-                <div key={idx} className="bg-white border border-stone-200 rounded-lg p-3">
-                  <div className="font-serif font-medium text-emerald-900 mb-1">{teamName}</div>
-                  <div className="text-sm text-stone-600">{members.join(", ")}</div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
       )}
     </main>
   );
