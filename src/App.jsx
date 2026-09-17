@@ -634,8 +634,16 @@ function Masthead({ view, setView, onLogout, data }) {
 
 function PublicView({ data, onPrint }) {
   const standings = computeStandings(data.teams, data.matches);
+  const hasMembers = data.teamMembers && Object.keys(data.teamMembers).length > 0;
   return (
     <main className="max-w-4xl mx-auto px-4 pt-8 pb-16">
+      {hasMembers && (
+        <div className="flex justify-end mb-4">
+          <a href="#team-members" className="text-sm text-emerald-800 hover:underline flex items-center gap-1.5">
+            <Users size={14} /> Team members
+          </a>
+        </div>
+      )}
       {data.matches.length === 0 ? (
         <EmptyState text="Fixtures haven't been published yet. Check back once the admin sets things up." />
       ) : (
@@ -661,7 +669,7 @@ function PublicView({ data, onPrint }) {
       )}
 
       {data.teamMembers && Object.keys(data.teamMembers).length > 0 && (
-        <section className="mt-10">
+        <section id="team-members" className="mt-10 scroll-mt-6">
           <h2 className="font-serif text-lg text-emerald-900 mb-3 flex items-center gap-2">
             <Users size={16} className="text-amber-600" /> Team Members
           </h2>
@@ -1033,58 +1041,111 @@ function TeamSetup({ data, persist, flash }) {
     if (data.matches.some((m) => m.played)) {
       if (!window.confirm("Some results have already been entered. Loading these fixtures will remove all existing matches and scores. Continue?")) return;
     }
-    const lines = pasteText.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
-    if (lines.length === 0) {
-      setPasteErrors(["Paste some rows first — one match per line: Home, Away, Rink."]);
+    const rawLines = pasteText.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+    if (rawLines.length === 0) {
+      setPasteErrors(["Paste some rows first — either Home, Away, Rink per line, or a rink-columns grid."]);
       return;
     }
+
+    const splitCells = (line) => (line.includes("\t") ? line.split("\t") : line.split(/ {2,}/)).map((f) => f.trim()).filter((f) => f.length > 0);
+    const rinkSet = new Set(rinks.map((r) => r.toLowerCase()));
+    const headerCells = splitCells(rawLines[0]);
+    const isGrid = headerCells.length === rinks.length && headerCells.every((c) => rinkSet.has(c.toLowerCase()));
 
     const errors = [];
-    const pairs = [];
-    lines.forEach((line, i) => {
-      const fields = (line.includes("\t") ? line.split("\t") : line.split(",")).map((f) => f.trim());
-      if (fields.length !== 3) {
-        errors.push(`Line ${i + 1}: expected 3 columns (Home, Away, Rink), found ${fields.length}.`);
-        return;
-      }
-      const [homeName, awayName, rinkRaw] = fields;
-      const homeIdx = teamIndexByName.get(homeName.toLowerCase());
-      const awayIdx = teamIndexByName.get(awayName.toLowerCase());
-      if (homeIdx === undefined) errors.push(`Line ${i + 1}: "${homeName}" doesn't match any team name.`);
-      if (awayIdx === undefined) errors.push(`Line ${i + 1}: "${awayName}" doesn't match any team name.`);
-      const rink = validRinkSet.get(rinkRaw.toLowerCase()) || rinkRaw;
-      if (!validRinkSet.has(rinkRaw.toLowerCase())) {
-        errors.push(`Line ${i + 1}: "${rinkRaw}" isn't one of this format's rinks (${rinks.join("/")}) — kept as typed.`);
-      }
-      if (homeIdx !== undefined && awayIdx !== undefined) {
-        pairs.push({ home: homeIdx, away: awayIdx, rink });
-      }
-    });
+    let matches = [];
 
-    const blockingErrors = errors.filter((e) => !e.includes("kept as typed"));
-    if (blockingErrors.length > 0) {
-      setPasteErrors(errors);
-      return;
-    }
+    const letterToIndex = (letter) => {
+      const trimmed = letter.trim();
+      if (trimmed.length === 1 && /[a-zA-Z]/.test(trimmed)) {
+        const idx = trimmed.toUpperCase().charCodeAt(0) - 65;
+        if (idx >= 0 && idx < teamCount) return idx;
+      }
+      return teamIndexByName.get(trimmed.toLowerCase());
+    };
 
-    if (lines.length % matchesPerWeek !== 0) {
-      if (!window.confirm(`${lines.length} rows isn't a multiple of ${matchesPerWeek} matches/week for this format — the last week will be incomplete. Continue anyway?`)) {
+    if (isGrid) {
+      // Grid layout: header row = rink columns, each following row = one week,
+      // each cell "TeamA v TeamB" (single-letter shorthand A,B,C... maps to team 1,2,3...).
+      const weekRows = rawLines.slice(1);
+      weekRows.forEach((line, weekIdx) => {
+        const cells = splitCells(line);
+        if (cells.length !== headerCells.length) {
+          errors.push(`Week ${weekIdx + 1}: expected ${headerCells.length} matches (one per rink column), found ${cells.length}.`);
+          return;
+        }
+        cells.forEach((cell, colIdx) => {
+          const m = cell.match(/^(.+?)\s+v\.?\s+(.+)$/i);
+          if (!m) {
+            errors.push(`Week ${weekIdx + 1}, ${headerCells[colIdx]}: "${cell}" isn't in "X v Y" form.`);
+            return;
+          }
+          const homeIdx = letterToIndex(m[1]);
+          const awayIdx = letterToIndex(m[2]);
+          if (homeIdx === undefined) errors.push(`Week ${weekIdx + 1}, ${headerCells[colIdx]}: "${m[1].trim()}" doesn't match a team.`);
+          if (awayIdx === undefined) errors.push(`Week ${weekIdx + 1}, ${headerCells[colIdx]}: "${m[2].trim()}" doesn't match a team.`);
+          if (homeIdx !== undefined && awayIdx !== undefined) {
+            matches.push({
+              id: uid(), week: weekIdx, home: homeIdx, away: awayIdx,
+              rink: validRinkSet.get(headerCells[colIdx].toLowerCase()) || headerCells[colIdx],
+              date: "", homeScore: null, awayScore: null, played: false,
+            });
+          }
+        });
+      });
+
+      if (errors.length > 0) {
         setPasteErrors(errors);
         return;
       }
-    }
+    } else {
+      // Row-by-row layout: one match per line, Home, Away, Rink.
+      const pairs = [];
+      rawLines.forEach((line, i) => {
+        const fields = (line.includes("\t") ? line.split("\t") : line.split(",")).map((f) => f.trim());
+        if (fields.length !== 3) {
+          errors.push(`Line ${i + 1}: expected 3 columns (Home, Away, Rink), found ${fields.length}.`);
+          return;
+        }
+        const [homeName, awayName, rinkRaw] = fields;
+        const homeIdx = teamIndexByName.get(homeName.toLowerCase());
+        const awayIdx = teamIndexByName.get(awayName.toLowerCase());
+        if (homeIdx === undefined) errors.push(`Line ${i + 1}: "${homeName}" doesn't match any team name.`);
+        if (awayIdx === undefined) errors.push(`Line ${i + 1}: "${awayName}" doesn't match any team name.`);
+        const rink = validRinkSet.get(rinkRaw.toLowerCase()) || rinkRaw;
+        if (!validRinkSet.has(rinkRaw.toLowerCase())) {
+          errors.push(`Line ${i + 1}: "${rinkRaw}" isn't one of this format's rinks (${rinks.join("/")}) — kept as typed.`);
+        }
+        if (homeIdx !== undefined && awayIdx !== undefined) {
+          pairs.push({ home: homeIdx, away: awayIdx, rink });
+        }
+      });
 
-    const matches = pairs.map((pair, i) => ({
-      id: uid(),
-      week: Math.floor(i / matchesPerWeek),
-      home: pair.home,
-      away: pair.away,
-      rink: pair.rink,
-      date: "",
-      homeScore: null,
-      awayScore: null,
-      played: false,
-    }));
+      const blockingErrors = errors.filter((e) => !e.includes("kept as typed"));
+      if (blockingErrors.length > 0) {
+        setPasteErrors(errors);
+        return;
+      }
+
+      if (rawLines.length % matchesPerWeek !== 0) {
+        if (!window.confirm(`${rawLines.length} rows isn't a multiple of ${matchesPerWeek} matches/week for this format — the last week will be incomplete. Continue anyway?`)) {
+          setPasteErrors(errors);
+          return;
+        }
+      }
+
+      matches = pairs.map((pair, i) => ({
+        id: uid(),
+        week: Math.floor(i / matchesPerWeek),
+        home: pair.home,
+        away: pair.away,
+        rink: pair.rink,
+        date: "",
+        homeScore: null,
+        awayScore: null,
+        played: false,
+      }));
+    }
 
     const next = structuredClone(data);
     next.matches = matches;
@@ -1219,9 +1280,9 @@ function TeamSetup({ data, persist, flash }) {
 
           <h4 className="font-serif text-sm text-stone-600 mb-1">Or paste your own fixtures</h4>
           <p className="text-xs text-stone-400 mb-2">
-            One match per line, three columns: <strong>Home, Away, Rink</strong> (tab or comma-separated — pasting
-            straight from a spreadsheet works). Rows are grouped into weeks {matchesPerWeek} at a time, in the order
-            you paste them.
+            Either one match per line — three columns <strong>Home, Away, Rink</strong> (tab or comma-separated) —
+            or a full grid: a header row of rink names ({rinks.join(", ")}), then one row per week with each cell
+            written as "A v B" (single letters A, B, C… stand for team 1, 2, 3… in your team list above).
           </p>
           <textarea
             value={pasteText}
