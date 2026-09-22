@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   Lock, Unlock, ShieldCheck, Calendar, Download, RotateCcw,
   Trophy, LogOut, Check, X, Save, PlusCircle, ArrowLeft,
-  RefreshCw, AlertTriangle, Printer, Users
+  RefreshCw, AlertTriangle, Printer, Users, Filter
 } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
@@ -656,6 +656,7 @@ function PublicView({ data, onPrint }) {
   const standings = computeStandings(data.teams, data.matches);
   const hasMembers = data.teamMembers && Object.keys(data.teamMembers).length > 0;
   const [membersOpen, setMembersOpen] = useState(false);
+  const [onlyUnplayed, setOnlyUnplayed] = useState(false);
   return (
     <main className="max-w-4xl mx-auto px-4 pt-8 pb-16">
       {data.matches.length === 0 ? (
@@ -710,11 +711,23 @@ function PublicView({ data, onPrint }) {
               <h2 className="font-serif text-lg text-emerald-900 flex items-center gap-2">
                 <Calendar size={16} className="text-amber-600" /> Fixtures &amp; results
               </h2>
-              <button onClick={onPrint} className="text-xs px-2.5 py-1.5 rounded border border-stone-300 text-stone-600 hover:bg-stone-100 flex items-center gap-1">
-                <Printer size={13} /> Print
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setOnlyUnplayed((v) => !v)}
+                  className={`text-xs px-2.5 py-1.5 rounded border flex items-center gap-1 ${
+                    onlyUnplayed
+                      ? "bg-emerald-800 text-white border-emerald-800"
+                      : "border-stone-300 text-stone-600 hover:bg-stone-100"
+                  }`}
+                >
+                  <Filter size={13} /> {onlyUnplayed ? "Showing unplayed" : "Show unplayed only"}
+                </button>
+                <button onClick={onPrint} className="text-xs px-2.5 py-1.5 rounded border border-stone-300 text-stone-600 hover:bg-stone-100 flex items-center gap-1">
+                  <Printer size={13} /> Print
+                </button>
+              </div>
             </div>
-            <FixturesList data={data} />
+            <FixturesList data={data} onlyUnplayed={onlyUnplayed} />
           </section>
         </div>
       )}
@@ -753,10 +766,14 @@ function StandingsTable({ rows }) {
   );
 }
 
-function FixturesList({ data, onScoreClick }) {
+function FixturesList({ data, onScoreClick, onlyUnplayed }) {
   if (data.matches.length === 0) return <EmptyState text="Fixtures haven't been generated yet." />;
+  const visibleMatches = onlyUnplayed ? data.matches.filter((m) => !m.played) : data.matches;
+  if (onlyUnplayed && visibleMatches.length === 0) {
+    return <EmptyState text="All fixtures have been played." />;
+  }
   const weeks = {};
-  data.matches.forEach((m) => { weeks[m.week] = weeks[m.week] || []; weeks[m.week].push(m); });
+  visibleMatches.forEach((m) => { weeks[m.week] = weeks[m.week] || []; weeks[m.week].push(m); });
   const weekNums = Object.keys(weeks).map(Number).sort((a, b) => a - b);
   return (
     <div className="space-y-4 max-h-[32rem] overflow-y-auto pr-1">
